@@ -1,0 +1,317 @@
+{
+  "stairs": [
+    {
+      "component_id": "court.north.stairs",
+      "treads": 193,
+      "blocked_count": 0,
+      "blocked_examples": [],
+      "pass": true
+    },
+    {
+      "component_id": "court.south.stairs",
+      "treads": 196,
+      "blocked_count": 0,
+      "blocked_examples": [],
+      "pass": true
+    },
+    {
+      "component_id": "site.south_steps",
+      "treads": 560,
+      "blocked_count": 0,
+      "blocked_examples": [],
+      "pass": true
+    }
+  ],
+  "court_floors": [
+    {
+      "court": "north",
+      "floor_y": 1,
+      "walk_surface_y": 2,
+      "no_below_grade_court": true,
+      "center_open": true
+    },
+    {
+      "court": "south",
+      "floor_y": 1,
+      "walk_surface_y": 2,
+      "no_below_grade_court": true,
+      "center_open": true
+    }
+  ],
+  "unsupported_tree_root_cells": [],
+  "water_source_cells": 696,
+  "uncontained_water_examples": [],
+  "column_podium_contact_cells": [
+    [
+      67,
+      5,
+      27
+    ],
+    [
+      80,
+      6,
+      45
+    ],
+    [
+      76,
+      6,
+      30
+    ],
+    [
+      55,
+      6,
+      51
+    ],
+    [
+      82,
+      5,
+      36
+    ],
+    [
+      69,
+      5,
+      51
+    ],
+    [
+      74,
+      5,
+      50
+    ],
+    [
+      79,
+      5,
+      33
+    ],
+    [
+      82,
+      6,
+      42
+    ],
+    [
+      45,
+      5,
+      37
+    ],
+    [
+      64,
+      5,
+      52
+    ],
+    [
+      68,
+      5,
+      27
+    ],
+    [
+      48,
+      6,
+      46
+    ],
+    [
+      80,
+      5,
+      45
+    ],
+    [
+      46,
+      6,
+      43
+    ],
+    [
+      72,
+      6,
+      28
+    ],
+    [
+      51,
+      6,
+      49
+    ],
+    [
+      47,
+      6,
+      34
+    ],
+    [
+      58,
+      6,
+      28
+    ],
+    [
+      82,
+      6,
+      39
+    ],
+    [
+      76,
+      5,
+      30
+    ],
+    [
+      55,
+      5,
+      51
+    ],
+    [
+      82,
+      5,
+      42
+    ],
+    [
+      50,
+      6,
+      31
+    ],
+    [
+      45,
+      6,
+      40
+    ],
+    [
+      77,
+      6,
+      48
+    ],
+    [
+      60,
+      6,
+      52
+    ],
+    [
+      63,
+      5,
+      27
+    ],
+    [
+      54,
+      5,
+      29
+    ],
+    [
+      63,
+      6,
+      27
+    ],
+    [
+      72,
+      6,
+      29
+    ],
+    [
+      54,
+      6,
+      29
+    ],
+    [
+      72,
+      5,
+      28
+    ],
+    [
+      48,
+      5,
+      46
+    ],
+    [
+      79,
+      6,
+      33
+    ],
+    [
+      47,
+      5,
+      34
+    ],
+    [
+      73,
+      6,
+      50
+    ],
+    [
+      51,
+      5,
+      49
+    ],
+    [
+      64,
+      6,
+      52
+    ],
+    [
+      55,
+      6,
+      50
+    ],
+    [
+      46,
+      5,
+      43
+    ],
+    [
+      69,
+      6,
+      51
+    ],
+    [
+      74,
+      6,
+      50
+    ],
+    [
+      58,
+      5,
+      28
+    ],
+    [
+      81,
+      6,
+      36
+    ],
+    [
+      82,
+      5,
+      39
+    ],
+    [
+      68,
+      6,
+      27
+    ],
+    [
+      45,
+      6,
+      37
+    ],
+    [
+      50,
+      5,
+      31
+    ],
+    [
+      45,
+      5,
+      40
+    ],
+    [
+      77,
+      5,
+      48
+    ],
+    [
+      60,
+      5,
+      52
+    ]
+  ],
+  "level_definition": {
+    "foundation_block_y": 0,
+    "first_floor_surface_y": 2,
+    "upper_deck_surface_y": 7
+  },
+  "not_tested": [
+    "Minecraft collision",
+    "fluid ticks",
+    "actual walk-through",
+    "architectural dimension accuracy"
+  ]
+}
