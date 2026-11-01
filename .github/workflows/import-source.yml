@@ -1,0 +1,234 @@
+# One-time import of a fixed, reviewed source archive. No release publication.
+name: Import verified Haibara's Architect 0.6 source
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/import-source.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: haf-source-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  import:
+    if: github.repository == 'aihaibara0816/Haibara-s-Architect' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: '1'
+      INITIAL_COMMIT: 41cdb6b8f50f86232270b30d0a7883f8da413e03
+      EXPECTED_ZIP_SHA256: bfb2ace766cebba9c0633f78cd7609c795a5592236357942ff61d3d01ed3d998
+      EXPECTED_ZIP_SIZE: '26714264'
+      ASSET_NAME: Haibara-s-Architect-0.6.0.zip
+      ARCHIVE_ROOT: Haibara-s-Architect-0.6.0
+    steps:
+      - name: Checkout the exact bootstrap commit without saved credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Guard initial repository and bootstrap-only history
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          initial = os.environ['INITIAL_COMMIT']
+          assert git('rev-parse', 'HEAD') == os.environ['GITHUB_SHA'], 'Unexpected checkout'
+          assert git('rev-list', '--max-parents=0', 'HEAD') == initial, 'Unexpected repository root'
+          subprocess.run(['git', 'merge-base', '--is-ancestor', initial, 'HEAD'], check=True)
+          commits = git('rev-list', initial + '..HEAD').splitlines()
+          assert 1 <= len(commits) <= 4, 'Only the initial commit plus bootstrap commits are allowed'
+          allowed = {'.github/workflows/import-source.yml', '.github/workflows/tests.yml'}
+          for commit in commits:
+              assert len(git('rev-list', '--parents', '-n', '1', commit).split()) == 2, 'Merge commits are not bootstrap'
+              changed = set(git('diff-tree', '--no-commit-id', '--name-only', '-r', commit).splitlines())
+              assert changed and changed <= allowed, 'Non-bootstrap changes already exist; stop instead of overwriting'
+          assert not git('status', '--porcelain'), 'Checkout is not clean'
+          print('Initial commit and bootstrap-only history verified')
+          PY
+
+      - name: Download the exact draft asset and verify archive and every file
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, re, stat, urllib.error, urllib.parse, urllib.request, zipfile
+          from pathlib import Path, PurePosixPath
+          repo = 'aihaibara0816/Haibara-s-Architect'
+          api = 'https://api.github.com/repos/' + repo
+          headers = {'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                     'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
+                     'User-Agent': 'haf-verified-source-import'}
+          class SafeRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+                  parsed = urllib.parse.urlsplit(newurl)
+                  assert parsed.scheme == 'https' and parsed.hostname, 'Unsafe redirect'
+                  result = super().redirect_request(req, fp, code, msg, hdrs, newurl)
+                  if parsed.hostname != urllib.parse.urlsplit(req.full_url).hostname:
+                      result.remove_header('Authorization')
+                  return result
+          opener = urllib.request.build_opener(SafeRedirect())
+          def get_json(path):
+              with opener.open(urllib.request.Request(api + path, headers=headers), timeout=60) as response:
+                  return json.load(response)
+          releases = get_json('/releases?per_page=100')
+          matches = [r for r in releases if r['tag_name'] == 'v0.6.0' and r['draft'] is True]
+          assert len(matches) == 1, 'Exactly one draft v0.6.0 release must exist'
+          assets = get_json('/releases/' + str(matches[0]['id']) + '/assets?per_page=100')
+          assets = [a for a in assets if a['name'] == os.environ['ASSET_NAME'] and a['state'] == 'uploaded']
+          assert len(assets) == 1, 'Exactly one completed source asset must exist'
+          asset = assets[0]
+          expected_size = int(os.environ['EXPECTED_ZIP_SIZE'])
+          expected_hash = os.environ['EXPECTED_ZIP_SHA256']
+          assert asset['size'] == expected_size, 'Asset size metadata mismatch'
+          if asset.get('digest'):
+              assert asset['digest'] == 'sha256:' + expected_hash, 'Asset digest metadata mismatch'
+          archive = Path(os.environ['RUNNER_TEMP']) / os.environ['ASSET_NAME']
+          binary_headers = {**headers, 'Accept': 'application/octet-stream'}
+          request = urllib.request.Request(api + '/releases/assets/' + str(asset['id']), headers=binary_headers)
+          digest, count = hashlib.sha256(), 0
+          with opener.open(request, timeout=60) as response, archive.open('xb') as target:
+              while chunk := response.read(1024 * 1024):
+                  count += len(chunk)
+                  assert count <= expected_size, 'Asset exceeds fixed size'
+                  digest.update(chunk)
+                  target.write(chunk)
+          assert count == expected_size and digest.hexdigest() == expected_hash, 'Archive integrity mismatch'
+          destination = Path(os.environ['RUNNER_TEMP']) / 'haf-verified-source'
+          destination.mkdir(exist_ok=False)
+          def safe_path(name):
+              assert isinstance(name, str) and name and '\\' not in name and ':' not in name
+              assert not any(ord(c) < 32 for c in name)
+              parts = name.split('/')
+              assert all(p not in ('', '.', '..') for p in parts), 'Unsafe path component'
+              assert not PurePosixPath(name).is_absolute() and '.git' not in [p.lower() for p in parts]
+              return name
+          with zipfile.ZipFile(archive) as bundle:
+              members = bundle.infolist()
+              assert len(members) == 921, 'Unexpected archive member count'
+              contents, folded = {}, set()
+              prefix = os.environ['ARCHIVE_ROOT'] + '/'
+              assert sum(i.file_size for i in members) < 300 * 1024 * 1024, 'Unreasonable extraction size'
+              for info in members:
+                  assert info.filename.startswith(prefix) and not info.is_dir(), 'Unexpected archive structure'
+                  relative = safe_path(info.filename[len(prefix):])
+                  assert relative.casefold() not in folded, 'Duplicate/colliding archive path'
+                  folded.add(relative.casefold())
+                  mode = info.external_attr >> 16
+                  assert stat.S_IFMT(mode) in (0, stat.S_IFREG), 'Links or special files are forbidden'
+                  assert not info.flag_bits & 1, 'Encrypted member'
+                  contents[relative] = bundle.read(info)
+              manifest = json.loads(contents['SHA256SUMS.json'].decode('utf-8'))
+              assert manifest['release'] == '0.6.0'
+              recorded = set()
+              for item in manifest['files']:
+                  name = safe_path(item['path'])
+                  assert name not in recorded and name != 'SHA256SUMS.json', 'Duplicate manifest path'
+                  recorded.add(name)
+                  data = contents[name]
+                  assert len(data) == item['bytes'] and hashlib.sha256(data).hexdigest() == item['sha256'], 'File integrity mismatch: ' + name
+              assert recorded == set(contents) - {'SHA256SUMS.json'}, 'Manifest coverage mismatch'
+              for name, data in contents.items():
+                  path = destination.joinpath(*PurePosixPath(name).parts)
+                  assert path.resolve().is_relative_to(destination.resolve()), 'Extraction escaped destination'
+                  path.parent.mkdir(parents=True, exist_ok=True)
+                  with path.open('xb') as target:
+                      target.write(data)
+          print('Verified draft asset, ZIP SHA-256 and all 920 manifest-listed file hashes')
+          PY
+
+      - name: Install declared dependencies in a temporary environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/haf-import-venv"
+          "$RUNNER_TEMP/haf-import-venv/bin/python" -m pip install -r "$RUNNER_TEMP/haf-verified-source/requirements.txt"
+
+      - name: Run regression suite and real workflow smoke before import
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/haf-verified-source"
+          "$RUNNER_TEMP/haf-import-venv/bin/python" -X utf8 -m unittest discover -s tests -v
+          "$RUNNER_TEMP/haf-import-venv/bin/python" -X utf8 tools/haf.py demo --runs-root "$RUNNER_TEMP/haf-smoke-runs" --run demo-001
+          "$RUNNER_TEMP/haf-import-venv/bin/python" -X utf8 tools/haf.py dispatch examples/workflow06/model-call.json --runs-root "$RUNNER_TEMP/haf-smoke-runs" --parent demo-001
+          "$RUNNER_TEMP/haf-import-venv/bin/python" -X utf8 tools/haf.py verify --runs-root "$RUNNER_TEMP/haf-smoke-runs" --run model-001
+
+      - name: Copy only verified source bytes, excluding workflow files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess, zipfile
+          from pathlib import Path
+          source = Path(os.environ['RUNNER_TEMP']) / 'haf-verified-source'
+          root = Path(os.environ['GITHUB_WORKSPACE']).resolve()
+          archive = Path(os.environ['RUNNER_TEMP']) / os.environ['ASSET_NAME']
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == os.environ['EXPECTED_ZIP_SHA256'], 'Archive changed after verification'
+          with zipfile.ZipFile(archive) as bundle:
+              manifest_bytes = bundle.read(os.environ['ARCHIVE_ROOT'] + '/SHA256SUMS.json')
+          assert (source / 'SHA256SUMS.json').read_bytes() == manifest_bytes, 'Tests changed the manifest'
+          manifest = json.loads(manifest_bytes.decode('utf-8'))
+          names = []
+          for item in manifest['files']:
+              data = (source / item['path']).read_bytes()
+              assert len(data) == item['bytes'] and hashlib.sha256(data).hexdigest() == item['sha256'], 'Tests changed source bytes'
+              if not item['path'].startswith('.github/workflows/'):
+                  names.append(item['path'])
+          names.append('SHA256SUMS.json')
+          for name in names:
+              target = root / name
+              assert target.resolve().is_relative_to(root) and not target.is_symlink()
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes((source / name).read_bytes())
+          # -f deliberately includes archived historical case runs from the manifest.
+          for start in range(0, len(names), 100):
+              subprocess.run(['git', '-c', 'core.autocrlf=false', 'add', '-f', '--', *names[start:start+100]], check=True)
+          staged = subprocess.check_output(['git', 'diff', '--cached', '--name-only', '-z']).decode().split('\0')
+          assert not any(n.startswith('.github/workflows/') for n in staged if n), 'Workflow changes must be added separately'
+          assert set(filter(None, staged)) <= set(names), 'Unexpected staged file'
+          for name in names:
+              staged_data = subprocess.check_output(['git', 'show', ':' + name])
+              assert staged_data == (source / name).read_bytes(), 'Git changed source bytes: ' + name
+          print('Staged verified source bytes; .github/workflows excluded')
+          PY
+
+      - name: Commit and fast-forward main without force
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, os, subprocess
+          def git(*args, env=None):
+              return subprocess.check_output(['git', *args], env=env, text=True).strip()
+          expected = os.environ['GITHUB_SHA']
+          assert git('rev-parse', 'HEAD') == expected, 'Local history changed'
+          env = os.environ.copy()
+          credential = base64.b64encode(('x-access-token:' + env.pop('GH_TOKEN')).encode()).decode()
+          env['GIT_CONFIG_COUNT'] = '1'
+          env['GIT_CONFIG_KEY_0'] = 'http.https://github.com/.extraheader'
+          env['GIT_CONFIG_VALUE_0'] = 'AUTHORIZATION: basic ' + credential
+          remote = git('ls-remote', 'origin', 'refs/heads/main', env=env).split()[0]
+          assert remote == expected, 'Remote main advanced; stop instead of overwriting'
+          subprocess.run(['git', 'config', 'user.name', 'github-actions[bot]'], check=True)
+          subprocess.run(['git', 'config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com'], check=True)
+          subprocess.run(['git', 'commit', '-m', 'Import verified Haibara Architect 0.6.0 source',
+                          '-m', 'ZIP SHA256: ' + os.environ['EXPECTED_ZIP_SHA256'] + '\nDraft asset verified; regression and workflow smoke passed; workflow files excluded.'], check=True)
+          subprocess.run(['git', 'push', 'origin', 'HEAD:refs/heads/main'], env=env, check=True)
+          print('Verified source imported with a normal fast-forward push; draft release remains unpublished')
+          PY
+
